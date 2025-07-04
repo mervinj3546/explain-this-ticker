@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 'use client'
 
 import TradingViewMiniWidget from './TradingViewMiniWidget';
@@ -437,8 +438,66 @@ export default function Home() {
               </div>
             )}
 
-            {activeTab === 'technical' && data?.technicalAnalysis && (
-              <div className="space-y-4">
+{activeTab === 'technical' && data?.technicalAnalysis && (
+  <div className="space-y-4">
+    {(() => {
+      let emaScore = 0;
+      const emaMessage = data.technicalAnalysis?.emaTrendAnnotation?.message?.toLowerCase();
+      if (emaMessage?.includes('bullish')) {
+        emaScore = 1;
+      } else if (emaMessage?.includes('bearish')) {
+        emaScore = -1;
+      }
+
+      let obvScore = 0;
+      if (Array.isArray(data.technicalAnalysis?.obvHistory) && data.technicalAnalysis.obvHistory.length > 10) {
+        const obvHistory = data.technicalAnalysis.obvHistory;
+        const currentObv = obvHistory.at(-1);
+        const priorObv = obvHistory.at(-11);
+        if (currentObv !== undefined && priorObv !== undefined && priorObv !== 0) {
+          const pctChange = ((currentObv - priorObv) / Math.abs(priorObv)) * 100;
+          if (pctChange > 2) obvScore = 1;
+          else if (pctChange < -2) obvScore = -1;
+        }
+      }
+
+      let macdScore = 0;
+      if (data.technicalAnalysis?.macd !== null && data.technicalAnalysis?.macdSignal !== null) {
+        const diff =
+          (data.technicalAnalysis?.macd ?? 0) -
+          (data.technicalAnalysis?.macdSignal ?? 0);
+        if (diff > 0) macdScore = 1;
+        else if (diff < 0) macdScore = -1;
+      }
+
+      const totalScore = (emaScore * 3) + (obvScore * 2) + (macdScore * 1);
+
+      let techSummary = "Neutral technical outlook.";
+      let techColor = "text-yellow-400";
+
+      if (totalScore >= 3) {
+        techSummary = "Overall technical outlook is strongly bullish.";
+        techColor = "text-green-500";
+      } else if (totalScore > 0) {
+        techSummary = "Overall technical outlook is moderately bullish.";
+        techColor = "text-green-500";
+      } else if (totalScore <= -3) {
+        techSummary = "Overall technical outlook is strongly bearish.";
+        techColor = "text-red-500";
+      } else if (totalScore < 0) {
+        techSummary = "Overall technical outlook is moderately bearish.";
+        techColor = "text-red-500";
+      }
+
+      return (
+        <div className="bg-[#1E1E1E] p-4 rounded mb-4">
+          <h3 className="text-xl font-bold text-center">Overall Technical Summary</h3>
+          <p className={`text-center mt-2 text-2xl ${techColor}`}>
+            {techSummary}
+          </p>
+        </div>
+      );
+    })()}
 
                 {/* EMA Card */}
                 <div className="card bg-[#1E1E1E] p-4 rounded">
@@ -446,7 +505,12 @@ export default function Home() {
                   {/* EMA Trend Annotation Message */}
                   {data.technicalAnalysis?.emaTrendAnnotation && (
                     <p
-                      className={`text-${data.technicalAnalysis.emaTrendAnnotation.color}-500 font-semibold mb-2`}
+                      className={`${
+                        data.technicalAnalysis.emaTrendAnnotation.message ===
+                        'Neutral trend: EMAs are mixed, show caution'
+                          ? 'text-yellow-400'
+                          : `text-${data.technicalAnalysis.emaTrendAnnotation.color}-500`
+                      } font-semibold mb-2`}
                     >
                       {data.technicalAnalysis.emaTrendAnnotation.message}
                     </p>
@@ -640,7 +704,19 @@ export default function Home() {
                     return (
                       <>
                         {obvSummary && (
-                          <p className="text-white mt-2">{obvSummary}</p>
+                          <p
+                            className={`mt-2 ${
+                              obvSummary.includes('buying pressure')
+                                ? 'text-green-500'
+                                : obvSummary.includes('selling pressure')
+                                  ? 'text-red-500'
+                                  : obvSummary.includes('neutral sentiment')
+                                    ? 'text-yellow-400'
+                                    : 'text-white'
+                            }`}
+                          >
+                            {obvSummary}
+                          </p>
                         )}
                         {data.technicalAnalysis?.obvHistory?.length ? (
                           <Line
@@ -894,13 +970,14 @@ export default function Home() {
                         }
 
                         return (
-                          <p className={`text-center mt-2 ${color}`}>
+                          <p className={`text-center mt-2 text-2xl ${color}`}>
                             {text}
                           </p>
                         );
                       })()}
                     </div>
                     <h2 className="text-xl font-bold">Sentiment Overview</h2>
+
 
                     {/* Charts: histogram, avg bar, stacked bins */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
