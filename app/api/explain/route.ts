@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const positiveWords = ['gain', 'bullish', 'up', 'growth', 'beat', 'profit', 'surge'];
+const negativeWords = ['loss', 'bearish', 'down', 'drop', 'miss', 'decline', 'plummet'];
+
+function scoreText(text: string): string {
+  const lower = text.toLowerCase();
+  if (positiveWords.some(w => lower.includes(w))) return 'POSITIVE';
+  if (negativeWords.some(w => lower.includes(w))) return 'NEGATIVE';
+  return 'NEUTRAL';
+}
+
 export async function GET(req: NextRequest) {
   const ticker = req.nextUrl.searchParams.get('ticker')
   if (!ticker) {
@@ -51,9 +61,11 @@ export async function GET(req: NextRequest) {
               headline: item.headline,
               summary: item.summary,
               url: item.url,
-              datetime: item.datetime
+              datetime: item.datetime,
+              sentiment: scoreText(item.headline + ' ' + item.summary)
             }))
-        : []
+        : [],
+      sentiment: [] // Placeholder for future Reddit sentiment
     })
   } catch (error) {
     console.error("API error:", error)

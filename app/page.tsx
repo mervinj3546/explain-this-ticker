@@ -2,9 +2,13 @@
 
 import TradingViewMiniWidget from './TradingViewMiniWidget';
 import TradingViewFullWidget from './TradingViewFullWidget';
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Line } from 'react-chartjs-2'
+import { Pie } from 'react-chartjs-2';
+import { Bar } from 'react-chartjs-2';
 import {
+  ArcElement,
+  BarElement,
   Chart as ChartJS,
   LineElement,
   CategoryScale,
@@ -13,8 +17,19 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
 
-ChartJS.register(LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend);
+ChartJS.register(
+  ArcElement,
+  BarElement,
+  LineElement,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  Tooltip,
+  Legend,
+  ChartDataLabels
+);
 // Candlestick chart component using lightweight-charts
 type Candle = {
   t: number;
@@ -80,16 +95,27 @@ type ApiResponse = {
     sentiment: string;
   }[];
   technicalAnalysis?: TechnicalAnalysis;
-  aiSummary?: string | null;
+  aiSummary?: string | Record<string, string> | null;
+  stocktwitsSummary?: {
+    positive: number;
+    neutral: number;
+    negative: number;
+  };
+  stocktwitsPosts?: {
+    id: number;
+    body: string;
+    sentiment?: string;
+  }[];
 };
 
 export default function Home() {
-  const [ticker, setTicker] = useState('')
-  const [data, setData] = useState<ApiResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('basic');
-  const [aiSummary, setAiSummary] = useState<string | null | undefined>(undefined);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [ticker, setTicker] = useState<string>('');
+  const [data, setData] = useState<ApiResponse | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<string>('basic');
+  // aiSummary can be string, object, null, or undefined (while loading)
+  const [aiSummary, setAiSummary] = useState<string | Record<string, string> | null | undefined>(undefined);
+  const [aiLoading, setAiLoading] = useState<boolean>(false);
 
   const handleSubmit = async () => {
     if (!ticker) return;
@@ -146,7 +172,14 @@ export default function Home() {
           }
 
           const json = await res.json();
-          setAiSummary(json.aiSummary || null);
+          // Accept string, object, or null
+          setAiSummary(
+            typeof json.aiSummary === 'string' || json.aiSummary === null
+              ? json.aiSummary
+              : typeof json.aiSummary === 'object' && json.aiSummary !== null
+                ? json.aiSummary as Record<string, string>
+                : null
+          );
         } catch (e) {
           console.error(e);
           setAiSummary(null);
@@ -271,95 +304,102 @@ export default function Home() {
                   </div>
                 )}
                 {/* Render AI summary object if present, otherwise string fallback */}
-                {!aiLoading && aiSummary && typeof aiSummary === 'object' && (
+                {!aiLoading && aiSummary && typeof aiSummary === 'object' && aiSummary !== null && (
                   <div className="prose prose-invert space-y-4">
-                    {
-                      // @ts-ignore
-                      Object.entries(aiSummary).map(([section, value]) => {
-                        // Skip "references" section
-                        if (
-                          section.toLowerCase() === 'references' ||
-                          typeof value !== 'string' ||
-                          !value.trim() ||
-                          ['n/a', 'data not available', 'data not provided'].includes(value.trim().toLowerCase())
-                        ) {
-                          return null;
-                        }
+                    {Object.entries(aiSummary).map(([section, value]) => {
+                      // Only render string values, skip references/empty
+                      if (
+                        section.toLowerCase() === 'references' ||
+                        typeof value !== 'string' ||
+                        !value.trim() ||
+                        ['n/a', 'data not available', 'data not provided'].includes(value.trim().toLowerCase())
+                      ) {
+                        return null;
+                      }
+                      // Emoji map with explicit mapping for News Commentary, Valuation Outlook, Risks
+                      const emojiMap: Record<string, string> = {
+                        'investment thesis': '💡',
+                        'business overview': '🏢',
+                        'key drivers': '⚡',
+                        'technical analysis': '📈',
+                        'sentiment & news commentary': '📰',
+                        'news commentary': '📰',
+                        'valuation & financial outlook': '💰',
+                        'valuation outlook': '💰',
+                        'valuation': '💰',
+                        'risks & bear case': '⚠️',
+                        'risks': '⚠️',
+                        'verdict & recommendation': '✅',
+                        'recommendation summary': '📋',
+                      };
+                      // Normalize section name for emoji lookup
+                      const sectionNormalized = section
+                        .replace(/([A-Z])/g, ' $1')
+                        .replace(/^./, str => str.toUpperCase())
+                        .trim();
+                      const sectionLower = sectionNormalized.toLowerCase();
+                      // Always show emoji for News Commentary, Valuation Outlook, Risks
+                      const emoji =
+                        emojiMap[sectionLower]
+                        || (sectionLower.includes('news commentary') ? '📰'
+                            : sectionLower.includes('valuation outlook') || sectionLower.includes('valuation') ? '💰'
+                            : sectionLower.includes('risks') ? '⚠️'
+                            : (sectionLower.startsWith('verdict') ? '✅'
+                              : sectionLower.startsWith('recommendation') ? '📋'
+                              : ''));
 
-                        // Emoji map with explicit mapping for News Commentary, Valuation Outlook, Risks
-                        const emojiMap: Record<string, string> = {
-                          'investment thesis': '💡',
-                          'business overview': '🏢',
-                          'key drivers': '⚡',
-                          'technical analysis': '📈',
-                          'sentiment & news commentary': '📰',
-                          'news commentary': '📰',
-                          'valuation & financial outlook': '💰',
-                          'valuation outlook': '💰',
-                          'valuation': '💰',
-                          'risks & bear case': '⚠️',
-                          'risks': '⚠️',
-                          'verdict & recommendation': '✅',
-                          'recommendation summary': '📋',
-                        };
-                        // Normalize section name for emoji lookup
-                        const sectionNormalized = section
-                          .replace(/([A-Z])/g, ' $1')
-                          .replace(/^./, str => str.toUpperCase())
-                          .trim();
-                        const sectionLower = sectionNormalized.toLowerCase();
-                        // Always show emoji for News Commentary, Valuation Outlook, Risks
-                        const emoji =
-                          emojiMap[sectionLower]
-                          || (sectionLower.includes('news commentary') ? '📰'
-                              : sectionLower.includes('valuation outlook') || sectionLower.includes('valuation') ? '💰'
-                              : sectionLower.includes('risks') ? '⚠️'
-                              : (sectionLower.startsWith('verdict') ? '✅'
-                                : sectionLower.startsWith('recommendation') ? '📋'
-                                : ''));
-
-                        let textColor = 'text-white';
-                        if (
-                          sectionLower === 'verdict' ||
-                          sectionLower.startsWith('verdict')
-                        ) {
-                          const verdictLower = value.toLowerCase();
-                          textColor =
-                            verdictLower.includes('buy') ? 'text-green-500'
-                            : verdictLower.includes('sell') ? 'text-red-500'
-                            : verdictLower.includes('hold') ? 'text-orange-400'
-                            : 'text-white';
-                        }
-
-                        // Add emoji to header for News Commentary, Valuation Outlook, Risks even if not in map
-                        return (
-                          <div key={section}>
-                            <h3 className="text-base font-bold capitalize mb-1">
-                              {emoji && <span className="mr-2">{emoji}</span>}
-                              {sectionNormalized}
-                            </h3>
-                            <p className={textColor}>{value}</p>
-                          </div>
-                        );
-                      })
-                    }
+                      let textColor = 'text-white';
+                      if (
+                        sectionLower === 'verdict' ||
+                        sectionLower.startsWith('verdict')
+                      ) {
+                        const verdictLower = value.toLowerCase();
+                        textColor =
+                          verdictLower.includes('buy') ? 'text-green-500'
+                          : verdictLower.includes('sell') ? 'text-red-500'
+                          : verdictLower.includes('hold') ? 'text-orange-400'
+                          : 'text-white';
+                      }
+                      return (
+                        <div key={section}>
+                          <h3 className="text-base font-bold capitalize mb-1">
+                            {emoji && <span className="mr-2">{emoji}</span>}
+                            {sectionNormalized}
+                          </h3>
+                          <p className={textColor}>{value}</p>
+                        </div>
+                      );
+                    })}
                     {/* Copy JSON button (icon only, no label) */}
-                    <button
-                      className="mt-4 flex items-center px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm"
-                      style={{ gap: '0.5em' }}
-                      title="Copy AI Summary JSON"
-                      onClick={() => {
-                        // @ts-ignore
-                        navigator.clipboard.writeText(JSON.stringify(aiSummary, null, 2));
-                      }}
-                    >
-                      <i className="fa fa-copy" aria-hidden="true"></i>
-                    </button>
+                    {Object.keys(aiSummary).length > 0 && (
+                      <button
+                        className="mt-4 flex items-center px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm"
+                        style={{ gap: '0.5em' }}
+                        title="Copy AI Summary JSON"
+                        onClick={() => {
+                          navigator.clipboard.writeText(JSON.stringify(aiSummary, null, 2));
+                        }}
+                      >
+                        <i className="fa fa-copy" aria-hidden="true"></i>
+                      </button>
+                    )}
                   </div>
                 )}
                 {!aiLoading && aiSummary && typeof aiSummary === 'string' && (
                   <div className="prose prose-invert">
                     {aiSummary}
+                    {aiSummary.trim() && (
+                      <button
+                        className="mt-4 flex items-center px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-white text-sm"
+                        style={{ gap: '0.5em' }}
+                        title="Copy AI Summary"
+                        onClick={() => {
+                          navigator.clipboard.writeText(aiSummary);
+                        }}
+                      >
+                        <i className="fa fa-copy" aria-hidden="true"></i>
+                      </button>
+                    )}
                   </div>
                 )}
                 {!aiLoading && aiSummary === null && (
@@ -473,6 +513,7 @@ export default function Home() {
                         responsive: true,
                         plugins: {
                           legend: { display: true, labels: { color: '#fff' } },
+                          datalabels: { display: false },
                         },
                         scales: {
                           x: { ticks: { color: '#fff' } },
@@ -560,6 +601,7 @@ export default function Home() {
                               responsive: true,
                               plugins: {
                                 legend: { display: true, labels: { color: '#fff' } },
+                                datalabels: { display: false },
                               },
                               scales: {
                                 x: { ticks: { color: '#fff' } },
@@ -618,6 +660,7 @@ export default function Home() {
                               responsive: true,
                               plugins: {
                                 legend: { display: false },
+                                datalabels: { display: false },
                               },
                               scales: {
                                 x: {
@@ -643,6 +686,462 @@ export default function Home() {
               </div>
             )}
 
+            {activeTab === 'sentiment' && (
+              (() => {
+                // Sentiment analysis logic
+                const positiveWeights: Record<string, number> = {
+                  gain: 1,
+                  gains: 1,
+                  gained: 1,
+                  bullish: 2,
+                  up: 1,
+                  rally: 2,
+                  growth: 2,
+                  beat: 2,
+                  beats: 2,
+                  profit: 2,
+                  profits: 2,
+                  surge: 3,
+                  soar: 3,
+                  'record high': 3,
+                  jump: 2,
+                  jumps: 2,
+                  increase: 1,
+                  upside: 2,
+                  improve: 1,
+                  improves: 1,
+                  improved: 1,
+                  optimistic: 2,
+                  strong: 2,
+                  outperform: 2,
+                  upgrade: 2,
+                  buys: 2,
+                  'buy rating': 2,
+                  positive: 1,
+                  momentum: 1,
+                  exceeds: 2,
+                  'tops estimates': 2,
+                  'better than expected': 2,
+                  expands: 1,
+                  rebound: 2,
+                  recovers: 2,
+                  highs: 1,
+                  'all-time high': 3,
+                };
+
+                const negativeWeights: Record<string, number> = {
+                  loss: -1,
+                  losses: -1,
+                  bearish: -2,
+                  down: -1,
+                  drop: -1,
+                  drops: -1,
+                  miss: -2,
+                  decline: -1,
+                  plummet: -3,
+                  falls: -1,
+                  falling: -1,
+                  decrease: -1,
+                  weak: -2,
+                  downgrade: -2,
+                  'sell rating': -2,
+                  warning: -2,
+                  'profit warning': -2,
+                  'cut guidance': -2,
+                  'misses estimates': -2,
+                  disappoints: -2,
+                  concerns: -1,
+                  risks: -1,
+                  slump: -2,
+                  tumbles: -2,
+                  retreats: -1,
+                  dips: -1,
+                  suffers: -2,
+                  missed: -2,
+                  underperform: -2,
+                  shortfall: -2,
+                  pessimistic: -2,
+                };
+
+                function scoreText(text: string): number {
+                  const lower = text.toLowerCase();
+                  let score = 0;
+
+                  for (const [word, weight] of Object.entries(positiveWeights)) {
+                    if (lower.includes(word)) {
+                      score += weight;
+                    }
+                  }
+
+                  for (const [word, weight] of Object.entries(negativeWeights)) {
+                    if (lower.includes(word)) {
+                      score += weight; // negative weights subtract
+                    }
+                  }
+
+                  return score;
+                }
+
+                const redditCounts = { bullish: 0, bearish: 0, neutral: 0 };
+                const redditScores: number[] = [];
+                const newsScores: number[] = [];
+                const stocktwitsCounts = { bullish: 0, bearish: 0, neutral: 0 };
+                const stocktwitsScores: number[] = [];
+
+                if (Array.isArray(data?.sentiment) && data.sentiment.length > 0) {
+                  data.sentiment.forEach(item => {
+                    const text = `${item.title} ${item.text}`;
+                    const score = scoreText(text);
+                    redditScores.push(score);
+                    if (score > 0) redditCounts.bullish++;
+                    else if (score < 0) redditCounts.bearish++;
+                    else redditCounts.neutral++;
+                  });
+                }
+
+                const newsCounts = { bullish: 0, bearish: 0, neutral: 0 };
+                data?.news?.forEach(article => {
+                  const score = scoreText(article.headline + ' ' + article.summary);
+                  newsScores.push(score);
+                  if (score > 0) newsCounts.bullish++;
+                  else if (score < 0) newsCounts.bearish++;
+                  else newsCounts.neutral++;
+                });
+
+                // Process Stocktwits data
+                if (Array.isArray(data?.stocktwitsPosts) && data.stocktwitsPosts.length > 0) {
+                  data.stocktwitsPosts.forEach(item => {
+                    const score = scoreText(item.body);
+                    stocktwitsScores.push(score);
+                    if (score > 0) stocktwitsCounts.bullish++;
+                    else if (score < 0) stocktwitsCounts.bearish++;
+                    else stocktwitsCounts.neutral++;
+                  });
+                }
+
+                // Compute averages
+                const avgRedditScore =
+                  redditScores.length > 0
+                    ? redditScores.reduce((a, b) => a + b, 0) / redditScores.length
+                    : 0;
+
+                const avgNewsScore =
+                  newsScores.length > 0
+                    ? newsScores.reduce((a, b) => a + b, 0) / newsScores.length
+                    : 0;
+
+                const avgStocktwitsScore =
+                  stocktwitsScores.length > 0
+                    ? stocktwitsScores.reduce((a, b) => a + b, 0) / stocktwitsScores.length
+                    : 0;
+
+                // Combined average score for all sources
+                const combinedAvgScore =
+                  (avgRedditScore * redditScores.length +
+                   avgNewsScore * newsScores.length +
+                   avgStocktwitsScore * stocktwitsScores.length) /
+                  (redditScores.length + newsScores.length + stocktwitsScores.length || 1);
+
+                // Compute sentiment bins
+                function binScores(scores: number[]) {
+                  return scores.reduce(
+                    (acc, score) => {
+                      if (score >= 3) acc.strongBullish++;
+                      else if (score >= 1) acc.moderateBullish++;
+                      else if (score <= -3) acc.strongBearish++;
+                      else if (score <= -1) acc.moderateBearish++;
+                      else acc.neutral++;
+                      return acc;
+                    },
+                    {
+                      strongBullish: 0,
+                      moderateBullish: 0,
+                      neutral: 0,
+                      moderateBearish: 0,
+                      strongBearish: 0,
+                    }
+                  );
+                }
+
+                const redditBins = binScores(redditScores);
+                const newsBins = binScores(newsScores);
+                const stocktwitsBins = binScores(stocktwitsScores);
+
+                return (
+                  <div className="space-y-4 text-white">
+                    {/* Overall Sentiment Summary Box */}
+                    <div className="bg-[#1E1E1E] p-4 rounded mb-4">
+                      <h3 className="text-xl font-bold text-center">Overall Sentiment Summary</h3>
+                      {(() => {
+                        let text = "";
+                        let color = "text-white";
+
+                        if (combinedAvgScore > 1) {
+                          text = "Overall sentiment is strongly bullish.";
+                          color = "text-green-500";
+                        } else if (combinedAvgScore > 0) {
+                          text = "Overall sentiment is mildly bullish.";
+                          color = "text-green-500";
+                        } else if (combinedAvgScore < -1) {
+                          text = "Overall sentiment is strongly bearish.";
+                          color = "text-red-500";
+                        } else if (combinedAvgScore < 0) {
+                          text = "Overall sentiment is mildly bearish.";
+                          color = "text-red-500";
+                        } else {
+                          text = "Overall sentiment is neutral.";
+                          color = "text-yellow-400";
+                        }
+
+                        return (
+                          <p className={`text-center mt-2 ${color}`}>
+                            {text}
+                          </p>
+                        );
+                      })()}
+                    </div>
+                    <h2 className="text-xl font-bold">Sentiment Overview</h2>
+
+                    {/* Charts: histogram, avg bar, stacked bins */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Average Sentiment Score Chart */}
+                      <div className="bg-[#1E1E1E] p-4 rounded">
+                        <h3 className="text-lg font-semibold mb-2 text-center">
+                          Average Sentiment Score
+                        </h3>
+                        <Bar
+                          data={{
+                            labels: ['Reddit', 'News', 'Stocktwits'],
+                            datasets: [{
+                              label: 'Avg Score',
+                              data: [avgRedditScore, avgNewsScore, avgStocktwitsScore],
+                              backgroundColor: [
+                                avgRedditScore > 0 ? '#10B981' : '#EF4444',
+                                avgNewsScore > 0 ? '#10B981' : '#EF4444',
+                                avgStocktwitsScore > 0 ? '#9333EA' : '#EF4444',
+                              ],
+                              barThickness: 30,
+                            }],
+                          }}
+                          options={{
+                            animation: {
+                              duration: 1500,
+                              easing: 'easeOutBounce',
+                            },
+                            plugins: {
+                              legend: { labels: { color: '#fff' } },
+                              datalabels: {
+                                color: '#fff',
+                                font: {
+                                  weight: 'bold',
+                                  size: 14,
+                                },
+                                formatter: (value: number) => value.toFixed(2),
+                              },
+                            },
+                            scales: {
+                              x: { ticks: { color: '#fff' } },
+                              y: { ticks: { color: '#fff' } },
+                            },
+                          }}
+                        />
+                      </div>
+
+                      {/* Stacked Bar Chart of Sentiment Bins */}
+                      <div className="bg-[#1E1E1E] p-4 rounded">
+                        <h3 className="text-lg font-semibold mb-2 text-center">
+                          Sentiment Distribution Bins
+                        </h3>
+                        <Bar
+                          data={{
+                            labels: ['Strong Bullish', 'Moderate Bullish', 'Neutral', 'Moderate Bearish', 'Strong Bearish'],
+                            datasets: [
+                              {
+                                label: 'Reddit',
+                                data: [
+                                  redditBins.strongBullish,
+                                  redditBins.moderateBullish,
+                                  redditBins.neutral,
+                                  redditBins.moderateBearish,
+                                  redditBins.strongBearish,
+                                ],
+                                backgroundColor: '#10B981',
+                                barThickness: 30,
+                              },
+                              {
+                                label: 'News',
+                                data: [
+                                  newsBins.strongBullish,
+                                  newsBins.moderateBullish,
+                                  newsBins.neutral,
+                                  newsBins.moderateBearish,
+                                  newsBins.strongBearish,
+                                ],
+                                backgroundColor: '#3B82F6',
+                                barThickness: 30,
+                              },
+                              {
+                                label: 'Stocktwits',
+                                data: [
+                                  stocktwitsBins.strongBullish,
+                                  stocktwitsBins.moderateBullish,
+                                  stocktwitsBins.neutral,
+                                  stocktwitsBins.moderateBearish,
+                                  stocktwitsBins.strongBearish,
+                                ],
+                                backgroundColor: [
+                                  '#9333EA',
+                                  '#A855F7',
+                                  '#FBBF24',
+                                  '#F87171',
+                                  '#EF4444',
+                                ],
+                                barThickness: 30,
+                              },
+                            ],
+                          }}
+                          options={{
+                            animation: {
+                              duration: 1500,
+                              easing: 'easeOutBounce',
+                            },
+                            plugins: {
+                              legend: { labels: { color: '#fff' } },
+                              datalabels: {
+                                color: '#ffffff',
+                                font: {
+                                  weight: 'bold',
+                                  size: 14,
+                                },
+                                formatter: (value: number) => (value > 0 ? value : ''),
+                              },
+                            },
+                            scales: {
+                              x: { stacked: true, ticks: { color: '#fff' } },
+                              y: { stacked: true, ticks: { color: '#fff' } },
+                            },
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Donut charts under the sentiment tiles */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+                      <div className="bg-[#1E1E1E] p-4 rounded">
+                        <h3 className="text-lg font-semibold mb-2 text-center">Reddit Sentiment </h3>
+                        <Pie
+                          data={{
+                            labels: ['Bullish', 'Bearish', 'Neutral'],
+                            datasets: [
+                              {
+                                data: [redditCounts.bullish, redditCounts.bearish, redditCounts.neutral],
+                                backgroundColor: ['#10B981', '#EF4444', '#FBBF24'],
+                              },
+                            ],
+                          }}
+                          options={{
+                            animation: {
+                              animateRotate: true,
+                              animateScale: true,
+                              duration: 1500,
+                              easing: 'easeOutCirc',
+                            },
+                            plugins: {
+                              legend: {
+                                labels: { color: '#fff' },
+                              },
+                              datalabels: {
+                                color: '#fff',
+                                font: {
+                                  weight: 'bold',
+                                  size: 14,
+                                },
+                                formatter: (value: number) => (value > 0 ? value : ''),
+                              },
+                            },
+                            cutout: '70%',
+                          }}
+                        />
+                      </div>
+
+                      <div className="bg-[#1E1E1E] p-4 rounded">
+                        <h3 className="text-lg font-semibold mb-2 text-center">News Sentiment </h3>
+                        <Pie
+                          data={{
+                            labels: ['Bullish', 'Bearish', 'Neutral'],
+                            datasets: [
+                              {
+                                data: [newsCounts.bullish, newsCounts.bearish, newsCounts.neutral],
+                                backgroundColor: ['#10B981', '#EF4444', '#FBBF24'],
+                              },
+                            ],
+                          }}
+                          options={{
+                            animation: {
+                              animateRotate: true,
+                              animateScale: true,
+                              duration: 1500,
+                              easing: 'easeOutCirc',
+                            },
+                            plugins: {
+                              legend: {
+                                labels: { color: '#fff' },
+                              },
+                              datalabels: {
+                                color: '#fff',
+                                font: {
+                                  weight: 'bold',
+                                  size: 14,
+                                },
+                                formatter: (value: number) => (value > 0 ? value : ''),
+                              },
+                            },
+                            cutout: '70%',
+                          }}
+                        />
+                      </div>
+
+                      <div className="bg-[#1E1E1E] p-4 rounded">
+                        <h3 className="text-lg font-semibold mb-2 text-center">Stocktwits Sentiment</h3>
+                        <Pie
+                          data={{
+                            labels: ['Bullish', 'Bearish', 'Neutral'],
+                            datasets: [
+                              {
+                                data: [stocktwitsCounts.bullish, stocktwitsCounts.bearish, stocktwitsCounts.neutral],
+                                backgroundColor: ['#9333EA', '#EF4444', '#FBBF24'],
+                              },
+                            ],
+                          }}
+                          options={{
+                            animation: {
+                              animateRotate: true,
+                              animateScale: true,
+                              duration: 1500,
+                              easing: 'easeOutCirc',
+                            },
+                            plugins: {
+                              legend: {
+                                labels: { color: '#fff' },
+                              },
+                              datalabels: {
+                                color: '#fff',
+                                font: {
+                                  weight: 'bold',
+                                  size: 14,
+                                },
+                                formatter: (value: number) => (value > 0 ? value : ''),
+                              },
+                            },
+                            cutout: '70%',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()
+            )}
           </div>
         </>
       )}

@@ -208,6 +208,37 @@ export async function GET(req: NextRequest) {
 
       const redditPosts = await fetchRedditPosts(ticker);
 
+      // Fetch Stocktwits messages
+      const stocktwitsUrl = `https://api.stocktwits.com/api/2/streams/symbol/${ticker}.json`;
+
+      let stocktwitsMessages: { id: number; body: string; sentiment?: string }[] = [];
+      let stocktwitsSummary = { positive: 0, neutral: 0, negative: 0 };
+
+      try {
+        const stocktwitsRes = await fetch(stocktwitsUrl, { cache: "no-store" });
+        if (stocktwitsRes.ok) {
+          const stocktwitsJson = await stocktwitsRes.json();
+          const messages = stocktwitsJson.messages || [];
+
+          stocktwitsMessages = messages.map((msg: any) => {
+            let sentiment = "neutral";
+            const lower = msg.body?.toLowerCase() || "";
+            if (lower.includes("bullish")) sentiment = "positive";
+            if (lower.includes("bearish")) sentiment = "negative";
+
+            stocktwitsSummary[sentiment as keyof typeof stocktwitsSummary] += 1;
+
+            return {
+              id: msg.id,
+              body: msg.body,
+              sentiment,
+            };
+          });
+        }
+      } catch (e) {
+        console.error("Failed to fetch Stocktwits data:", e);
+      }
+
       // Define mapping of company names for common tickers
       const companyNamesMap: Record<string, string[]> = {
         AAPL: ['apple'],
@@ -266,10 +297,43 @@ export async function GET(req: NextRequest) {
           candles,
         },
         sentiment: redditPosts,
+        stocktwitsSummary,
+        stocktwitsPosts: stocktwitsMessages,
       })
     } else {
       // If no candles data, still fetch Reddit posts and return minimal data
       const redditPosts = await fetchRedditPosts(ticker);
+
+      // Fetch Stocktwits messages
+      const stocktwitsUrl = `https://api.stocktwits.com/api/2/streams/symbol/${ticker}.json`;
+
+      let stocktwitsMessages: { id: number; body: string; sentiment?: string }[] = [];
+      let stocktwitsSummary = { positive: 0, neutral: 0, negative: 0 };
+
+      try {
+        const stocktwitsRes = await fetch(stocktwitsUrl, { cache: "no-store" });
+        if (stocktwitsRes.ok) {
+          const stocktwitsJson = await stocktwitsRes.json();
+          const messages = stocktwitsJson.messages || [];
+
+          stocktwitsMessages = messages.map((msg: any) => {
+            let sentiment = "neutral";
+            const lower = msg.body?.toLowerCase() || "";
+            if (lower.includes("bullish")) sentiment = "positive";
+            if (lower.includes("bearish")) sentiment = "negative";
+
+            stocktwitsSummary[sentiment as keyof typeof stocktwitsSummary] += 1;
+
+            return {
+              id: msg.id,
+              body: msg.body,
+              sentiment,
+            };
+          });
+        }
+      } catch (e) {
+        console.error("Failed to fetch Stocktwits data:", e);
+      }
 
       // Define mapping of company names for common tickers
       const companyNamesMap: Record<string, string[]> = {
@@ -326,6 +390,8 @@ export async function GET(req: NextRequest) {
           candles: [],
         },
         sentiment: redditPosts,
+        stocktwitsSummary,
+        stocktwitsPosts: stocktwitsMessages,
       })
     }
   } catch (error) {
