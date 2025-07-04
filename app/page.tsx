@@ -3,6 +3,7 @@
 
 import TradingViewMiniWidget from './TradingViewMiniWidget';
 import TradingViewFullWidget from './TradingViewFullWidget';
+import TradingViewTechnicalAnalysis from './TradingViewTechnicalAnalysis';
 import { useState, useEffect } from 'react'
 import { Line } from 'react-chartjs-2'
 import { Pie } from 'react-chartjs-2';
@@ -441,61 +442,150 @@ export default function Home() {
 {activeTab === 'technical' && data?.technicalAnalysis && (
   <div className="space-y-4">
     {(() => {
-      let emaScore = 0;
-      const emaMessage = data.technicalAnalysis?.emaTrendAnnotation?.message?.toLowerCase();
-      if (emaMessage?.includes('bullish')) {
-        emaScore = 1;
-      } else if (emaMessage?.includes('bearish')) {
-        emaScore = -1;
-      }
+      // Use closes from candles if available
+      const closes = data.technicalAnalysis?.candles?.map(c => c.c) || [];
 
-      let obvScore = 0;
-      if (Array.isArray(data.technicalAnalysis?.obvHistory) && data.technicalAnalysis.obvHistory.length > 10) {
+      // --- VWAP (approximate) ---
+      const avgVwap = closes.length > 0
+        ? closes.reduce((a, b) => a + b, 0) / closes.length
+        : null;
+
+      const price = data.quote?.c || avgVwap || 0;
+
+      const vwapText = avgVwap !== null
+        ? price > avgVwap
+          ? "Price above VWAP → Bullish bias."
+          : price < avgVwap
+            ? "Price below VWAP → Bearish bias."
+            : "Price at VWAP → Neutral bias."
+        : "VWAP unavailable.";
+
+      // --- Fibonacci ---
+      const high =
+        data.ytd?.yearHigh !== null && data.ytd?.yearHigh !== undefined
+          ? data.ytd.yearHigh
+          : data.quote?.h || 110;
+
+      const low =
+        data.ytd?.yearLow !== null && data.ytd?.yearLow !== undefined
+          ? data.ytd.yearLow
+          : data.quote?.l || 95;
+
+      const fibLevels = [
+        high - (high - low) * 0.236,
+        high - (high - low) * 0.382,
+        high - (high - low) * 0.5,
+        high - (high - low) * 0.618,
+      ];
+
+      // --- OBV Summary for use in technical score ---
+      let obvSummary: string | null = null;
+      if (data.technicalAnalysis?.obvHistory?.length) {
         const obvHistory = data.technicalAnalysis.obvHistory;
         const currentObv = obvHistory.at(-1);
-        const priorObv = obvHistory.at(-11);
+        const priorObv = obvHistory.length > 10 ? obvHistory.at(-11) : obvHistory[0];
+
         if (currentObv !== undefined && priorObv !== undefined && priorObv !== 0) {
-          const pctChange = ((currentObv - priorObv) / Math.abs(priorObv)) * 100;
-          if (pctChange > 2) obvScore = 1;
-          else if (pctChange < -2) obvScore = -1;
+          const diff = currentObv - priorObv;
+          const pctChange = (diff / Math.abs(priorObv)) * 100;
+          if (pctChange > 2) {
+            obvSummary = `OBV has risen ${pctChange.toFixed(2)}% over the past 10 periods, suggesting buying pressure.`;
+          } else if (pctChange < -2) {
+            obvSummary = `OBV has fallen ${Math.abs(pctChange).toFixed(2)}% over the past 10 periods, suggesting selling pressure.`;
+          } else {
+            obvSummary = `OBV is relatively flat over the past 10 periods, indicating neutral market sentiment.`;
+          }
         }
       }
 
-      let macdScore = 0;
-      if (data.technicalAnalysis?.macd !== null && data.technicalAnalysis?.macdSignal !== null) {
-        const diff =
-          (data.technicalAnalysis?.macd ?? 0) -
-          (data.technicalAnalysis?.macdSignal ?? 0);
-        if (diff > 0) macdScore = 1;
-        else if (diff < 0) macdScore = -1;
+      // --- Overall Technical Score ---
+      let technicalScore = 0;
+
+      const emaAnnotation = data.technicalAnalysis?.emaTrendAnnotation?.message || "";
+      if (emaAnnotation.toLowerCase().includes("bullish")) {
+        technicalScore += 3;
+      } else if (emaAnnotation.toLowerCase().includes("bearish")) {
+        technicalScore -= 3;
       }
 
-      const totalScore = (emaScore * 3) + (obvScore * 2) + (macdScore * 1);
+      const macdValue = data.technicalAnalysis?.macd;
+      const macdSignal = data.technicalAnalysis?.macdSignal;
+      const macdDiff =
+        macdValue !== null && macdValue !== undefined &&
+        macdSignal !== null && macdSignal !== undefined
+          ? macdValue - macdSignal
+          : null;
 
-      let techSummary = "Neutral technical outlook.";
+      if (macdDiff !== null) {
+        technicalScore += macdDiff > 0 ? 2 : macdDiff < 0 ? -2 : 0;
+      }
+
+      if (obvSummary) {
+        if (obvSummary.includes("buying pressure")) {
+          technicalScore += 1;
+        } else if (obvSummary.includes("selling pressure")) {
+          technicalScore -= 1;
+        }
+      }
+
+      // Add VWAP influence
+      if (avgVwap !== null) {
+        if (price > avgVwap) {
+          technicalScore += 1;
+        } else if (price < avgVwap) {
+          technicalScore -= 1;
+        }
+      }
+
+      let technicalSummary = "Overall technical trend is Neutral.";
       let techColor = "text-yellow-400";
 
-      if (totalScore >= 3) {
-        techSummary = "Overall technical outlook is strongly bullish.";
+      if (technicalScore > 2) {
+        technicalSummary = "Overall technical trend is Bullish.";
         techColor = "text-green-500";
-      } else if (totalScore > 0) {
-        techSummary = "Overall technical outlook is moderately bullish.";
-        techColor = "text-green-500";
-      } else if (totalScore <= -3) {
-        techSummary = "Overall technical outlook is strongly bearish.";
-        techColor = "text-red-500";
-      } else if (totalScore < 0) {
-        techSummary = "Overall technical outlook is moderately bearish.";
+      } else if (technicalScore < -2) {
+        technicalSummary = "Overall technical trend is Bearish.";
         techColor = "text-red-500";
       }
 
       return (
-        <div className="bg-[#1E1E1E] p-4 rounded mb-4">
-          <h3 className="text-xl font-bold text-center">Overall Technical Summary</h3>
-          <p className={`text-center mt-2 text-2xl ${techColor}`}>
-            {techSummary}
-          </p>
-        </div>
+        <>
+          <div className="bg-[#1E1E1E] p-4 rounded mb-4">
+            <p className={`text-center mt-2 text-2xl ${techColor}`}>
+              {technicalSummary}
+            </p>
+          </div>
+
+          <section className="mb-6">
+            <TradingViewMiniWidget ticker={ticker.trim().toUpperCase()} />
+          </section>
+
+          <div className="bg-[#1E1E1E] p-4 rounded mb-4">
+            <h3 className="text-xl font-bold text-center">Key Technical Metrics</h3>
+            <ul className="mt-2 space-y-2 text-white">
+              <li>
+                <span className="font-bold text-purple-400">VWAP (approximate):</span>{' '}
+                {avgVwap?.toFixed(2) || 'N/A'} —{' '}
+                <span className={
+                  vwapText.includes('Bullish') ? 'text-green-500' :
+                  vwapText.includes('Bearish') ? 'text-red-500' :
+                  'text-white'
+                }>
+                  {vwapText}
+                </span>
+              </li>
+              <li>
+                <span className="font-bold text-purple-400">Fibonacci Levels:</span>{' '}
+                {fibLevels
+                  .map((lvl, idx) => {
+                    const labels = ['23.6%', '38.2%', '50%', '61.8%'];
+                    return `${lvl.toFixed(2)} (${labels[idx]})`;
+                  })
+                  .join(', ')}
+              </li>
+            </ul>
+          </div>
+        </>
       );
     })()}
 
@@ -759,6 +849,7 @@ export default function Home() {
                     );
                   })()}
                 </div>
+
               </div>
             )}
 
