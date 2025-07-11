@@ -264,6 +264,36 @@ export async function GET(req: NextRequest) {
           datetime: item.datetime,
         }));
 
+    // Fetch Finnhub financial metrics only (no quarterOverview)
+    let financials: any = undefined;
+    try {
+      const metricsUrl = `https://finnhub.io/api/v1/stock/metric?symbol=${ticker}&metric=all&token=${token}`;
+      const metricsRes = await fetch(metricsUrl, { cache: "no-store" });
+      if (metricsRes.ok) {
+        const metricsJson = await metricsRes.json();
+        const m = metricsJson.metric || {};
+        financials = {
+          grossMargin: m.grossMarginTTM,
+          netProfitMargin: m.netProfitMarginTTM,
+          currentRatio: m.currentRatioAnnual,
+          operatingCashFlow: m.cashFlowPerShareTTM,
+          freeCashFlow: m.cashFlowPerShareTTM,
+          totalEquity: m.bookValuePerShareAnnual,
+          debtEquity: m["totalDebt/totalEquityAnnual"],
+          returnOnEquity: m.roeTTM,
+          returnOnAssets: m.roaTTM,
+          inventoryTurnover: m.inventoryTurnoverTTM,
+          assetTurnover: m.assetTurnoverTTM,
+          epsHistory: (metricsJson.series?.annual?.eps || []).map((e: any) => ({
+            quarter: e.period,
+            eps: e.v
+          })),
+        };
+      }
+    } catch (e) {
+      console.error("Failed to fetch Finnhub financial metrics:", e);
+    }
+
       return NextResponse.json({
         ticker,
         quote: quoteData,
@@ -299,6 +329,7 @@ export async function GET(req: NextRequest) {
         sentiment: redditPosts,
         stocktwitsSummary,
         stocktwitsPosts: stocktwitsMessages,
+        financials,
       })
     } else {
       // If no candles data, still fetch Reddit posts and return minimal data
@@ -344,55 +375,86 @@ export async function GET(req: NextRequest) {
         META: ['meta', 'facebook'],
       };
 
-      return NextResponse.json({
-        ticker,
-        quote: quoteData,
-        news: (newsData as NewsItem[])
-          .filter(item => {
-            const headline = item.headline?.toLowerCase() || "";
-            const tickerMatch = headline.includes(ticker.toLowerCase());
-            const names = companyNamesMap[ticker.toUpperCase()] || [];
-            const nameMatch = names.some(name => headline.includes(name));
-            return tickerMatch || nameMatch;
-          })
-          .map(item => ({
-            headline: item.headline,
-            summary: item.summary,
-            url: item.url,
-            datetime: item.datetime,
+    // Fetch Finnhub financial metrics only (no quarterOverview)
+    let financials: any = undefined;
+    try {
+      const metricsUrl = `https://finnhub.io/api/v1/stock/metric?symbol=${ticker}&metric=all&token=${token}`;
+      const metricsRes = await fetch(metricsUrl, { cache: "no-store" });
+      if (metricsRes.ok) {
+        const metricsJson = await metricsRes.json();
+        const m = metricsJson.metric || {};
+        financials = {
+          grossMargin: m.grossMarginTTM,
+          netProfitMargin: m.netProfitMarginTTM,
+          currentRatio: m.currentRatioAnnual,
+          operatingCashFlow: m.cashFlowPerShareTTM,
+          freeCashFlow: m.cashFlowPerShareTTM,
+          totalEquity: m.bookValuePerShareAnnual,
+          debtEquity: m["totalDebt/totalEquityAnnual"],
+          returnOnEquity: m.roeTTM,
+          returnOnAssets: m.roaTTM,
+          inventoryTurnover: m.inventoryTurnoverTTM,
+          assetTurnover: m.assetTurnoverTTM,
+          epsHistory: (metricsJson.series?.annual?.eps || []).map((e: any) => ({
+            quarter: e.period,
+            eps: e.v
           })),
-        ytd: {
-          priceOnJan1,
-          yearHigh,
-          yearLow,
-          growthPct,
-        },
-        technicalAnalysis: {
-          ema9: null,
-          ema9Array: [],
-          ema21: null,
-          ema21Array: [],
-          ema34: null,
-          ema34Array: [],
-          ema50: null,
-          ema50Array: [],
-          ema100: null,
-          ema100Array: [],
-          ema200: null,
-          ema200Array: [],
-          macd: null,
-          macdArray: [],
-          macdSignal: null,
-          macdSignalArray: [],
-          obv: null,
-          obvHistory: [],
-          emaTrendAnnotation: null,
-          candles: [],
-        },
-        sentiment: redditPosts,
-        stocktwitsSummary,
-        stocktwitsPosts: stocktwitsMessages,
-      })
+        };
+      }
+    } catch (e) {
+      console.error("Failed to fetch Finnhub financial metrics:", e);
+    }
+
+    return NextResponse.json({
+      ticker,
+      quote: quoteData,
+      news: (newsData as NewsItem[])
+        .filter(item => {
+          const headline = item.headline?.toLowerCase() || "";
+          const tickerMatch = headline.includes(ticker.toLowerCase());
+          const names = companyNamesMap[ticker.toUpperCase()] || [];
+          const nameMatch = names.some(name => headline.includes(name));
+          return tickerMatch || nameMatch;
+        })
+        .map(item => ({
+          headline: item.headline,
+          summary: item.summary,
+          url: item.url,
+          datetime: item.datetime,
+        })),
+      ytd: {
+        priceOnJan1,
+        yearHigh,
+        yearLow,
+        growthPct,
+      },
+      technicalAnalysis: {
+        ema9: null,
+        ema9Array: [],
+        ema21: null,
+        ema21Array: [],
+        ema34: null,
+        ema34Array: [],
+        ema50: null,
+        ema50Array: [],
+        ema100: null,
+        ema100Array: [],
+        ema200: null,
+        ema200Array: [],
+        macd: null,
+        macdArray: [],
+        macdSignal: null,
+        macdSignalArray: [],
+        obv: null,
+        obvHistory: [],
+        emaTrendAnnotation: null,
+        candles: [],
+      },
+      sentiment: redditPosts,
+      stocktwitsSummary,
+      stocktwitsPosts: stocktwitsMessages,
+      financials,
+    })
     }
   } catch (error) {
     console.error("API error:", error)
@@ -414,4 +476,20 @@ function calculateEMA(prices: number[], period: number): number[] {
   }
 
   return emaArray;
+}
+
+// Helper to format quarter date range
+function formatQuarterDates(startDate: string | undefined, endDate: string | undefined): string {
+  if (!startDate || !endDate) return "";
+  // Format: "Dec 28, 2024 – Mar 28, 2025"
+  try {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const options: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric" };
+    const startStr = start.toLocaleDateString("en-US", options);
+    const endStr = end.toLocaleDateString("en-US", options);
+    return `${startStr} – ${endStr}`;
+  } catch {
+    return "";
+  }
 }

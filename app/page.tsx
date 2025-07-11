@@ -108,7 +108,56 @@ type ApiResponse = {
     body: string;
     sentiment?: string;
   }[];
+  financials?: {
+    grossMargin?: number | null | undefined;
+    netProfitMargin?: number | null | undefined;
+    currentRatio?: number | null | undefined;
+    operatingCashFlow?: number | null | undefined;
+    freeCashFlow?: number | null | undefined;
+    totalAssets?: number | null | undefined;
+    totalLiabilities?: number | null | undefined;
+    totalEquity?: number | null | undefined;
+    debtEquity?: number | null | undefined;
+    returnOnEquity?: number | null | undefined;
+    returnOnAssets?: number | null | undefined;
+    inventoryTurnover?: number | null | undefined;
+    assetTurnover?: number | null | undefined;
+    epsHistory?: { quarter: string; eps: number; epsGrowthPct?: number }[];
+  };
+  quarterOverview?: {
+    period?: string;
+    dates?: string;
+    revenueQoQ?: number | null;
+    netIncomeQoQ?: number | null;
+    epsQoQ?: number | null;
+  };
+  epsHistory?: {
+    quarter: string;
+    eps: number;
+    epsGrowthPct?: number;
+  }[];
 };
+
+// Helper for formatting percentages, now globally accessible in Home
+function formatPct(val: number | null | undefined, decimals = 2) {
+  return typeof val === 'number' ? val.toFixed(decimals) + '%' : 'N/A';
+}
+
+// Helper to format a date string like '2024-09-28' to 'Q4 2024'
+function formatQuarter(dateStr: string): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+  // JS months: 0-based, so +1
+  const month = date.getMonth() + 1;
+  const year = date.getFullYear();
+  let quarter;
+  if (month >= 1 && month <= 3) quarter = 'Q1';
+  else if (month >= 4 && month <= 6) quarter = 'Q2';
+  else if (month >= 7 && month <= 9) quarter = 'Q3';
+  else quarter = 'Q4';
+  return `${quarter} ${year}`;
+}
 
 export default function Home() {
   const [ticker, setTicker] = useState<string>('');
@@ -215,7 +264,7 @@ export default function Home() {
       {data && (
         <>
           <div className="flex space-x-4 mt-6 border-b border-gray-700">
-            {['basic', 'ai', 'news', 'technical', 'sentiment'].map((tab) => (
+            {['basic', 'ai', 'news', 'technical', 'sentiment', 'financials'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -226,6 +275,7 @@ export default function Home() {
                 {tab === 'news' && 'News'}
                 {tab === 'technical' && 'Technical analysis'}
                 {tab === 'sentiment' && 'Sentiment analysis'}
+                {tab === 'financials' && 'Financials'}
               </button>
             ))}
           </div>
@@ -289,6 +339,23 @@ export default function Home() {
 
             {activeTab === 'ai' && (
               <div className="text-white bg-[#1E1E1E] p-4 rounded">
+                {/* Verdict summary box at the top */}
+                {!aiLoading && aiSummary && typeof aiSummary === 'object' && aiSummary.verdict && (
+                  <div className="bg-[#1E1E1E] p-4 rounded mb-4">
+                    <h3 className="text-xl font-bold text-center">Overall AI Summary</h3>
+                    <p
+                      className={`text-center mt-2 text-2xl ${
+                        aiSummary.verdict.toLowerCase() === 'bullish'
+                          ? 'text-green-500'
+                          : aiSummary.verdict.toLowerCase() === 'bearish'
+                            ? 'text-red-500'
+                            : 'text-yellow-400'
+                      }`}
+                    >
+                      {aiSummary.verdict}
+                    </p>
+                  </div>
+                )}
                 {/* Stock logo above AI summary */}
                 {ticker.trim() && (
                   <img
@@ -1311,6 +1378,172 @@ export default function Home() {
               })()
             )}
           </div>
+          {/* Financials Tab */}
+          {activeTab === 'financials' && data?.financials && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-white">
+              {(() => {
+                const f = data.financials;
+                function formatNum(val: number | null | undefined, decimals = 2) {
+                  if (val === null || val === undefined || isNaN(val)) return 'N/A';
+                  if (Math.abs(val) >= 1e9) return (val / 1e9).toFixed(decimals) + 'B';
+                  if (Math.abs(val) >= 1e6) return (val / 1e6).toFixed(decimals) + 'M';
+                  if (Math.abs(val) >= 1e3) return (val / 1e3).toFixed(decimals) + 'K';
+                  return val.toFixed(decimals);
+                }
+                function progressBar(pct: number | null | undefined, color = 'bg-blue-500') {
+                  if (typeof pct !== 'number') return null;
+                  const percent = Math.max(0, Math.min(100, pct * 100));
+                  return (
+                    <div className="w-full h-2 bg-gray-700 rounded mt-1 mb-2">
+                      <div
+                        className={`${color} h-2 rounded`}
+                        style={{ width: `${percent}%`, transition: 'width 0.6s' }}
+                      ></div>
+                    </div>
+                  );
+                }
+                return (
+                  <>
+                    <div className="bg-[#1E1E1E] p-4 rounded">
+                      <h3 className="text-lg font-semibold mb-2">Margins</h3>
+                      <div>
+                        <span className="font-semibold">Gross Margin:</span>{' '}
+                        {formatPct(f.grossMargin)}
+                        {progressBar(f.grossMargin, 'bg-green-500')}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Net Profit Margin:</span>{' '}
+                        {formatPct(f.netProfitMargin)}
+                        {progressBar(f.netProfitMargin, 'bg-blue-500')}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Current Ratio:</span>{' '}
+                        {typeof f.currentRatio === 'number' ? f.currentRatio.toFixed(2) : 'N/A'}
+                        {f.currentRatio !== undefined && f.currentRatio !== null && (
+                          progressBar(Math.min(f.currentRatio / 3, 1), f.currentRatio >= 1.5 ? 'bg-green-500' : 'bg-yellow-400')
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-[#1E1E1E] p-4 rounded">
+                      <h3 className="text-lg font-semibold mb-2">Cash Flows</h3>
+                      <div>
+                        <span className="font-semibold">Operating Cash Flow Per Share:</span>{' '}
+                        {formatNum(f.operatingCashFlow)}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Free Cash Flow Per Share:</span>{' '}
+                        {formatNum(f.freeCashFlow)}
+                      </div>
+                    </div>
+                    <div className="bg-[#1E1E1E] p-4 rounded">
+                      <h3 className="text-lg font-semibold mb-2">Balance Sheet</h3>
+                      <div>
+                        <span className="font-semibold">Total Assets:</span>{' '}
+                        {formatNum(f.totalAssets)}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Total Liabilities:</span>{' '}
+                        {formatNum(f.totalLiabilities)}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Total Equity:</span>{' '}
+                        {formatNum(f.totalEquity)}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Debt/Equity:</span>{' '}
+                        {typeof f.debtEquity === 'number' ? f.debtEquity.toFixed(2) : 'N/A'}
+                        {f.debtEquity !== undefined && f.debtEquity !== null && (
+                          progressBar(Math.min(f.debtEquity / 2, 1), f.debtEquity < 1 ? 'bg-green-500' : 'bg-yellow-400')
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-[#1E1E1E] p-4 rounded">
+                      <h3 className="text-lg font-semibold mb-2">Returns & Efficiency</h3>
+                      <div>
+                        <span className="font-semibold">Return on Equity (ROE):</span>{' '}
+                        {formatPct(f.returnOnEquity)}
+                        {progressBar(f.returnOnEquity, 'bg-blue-500')}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Return on Assets (ROA):</span>{' '}
+                        {formatPct(f.returnOnAssets)}
+                        {progressBar(f.returnOnAssets, 'bg-purple-500')}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Inventory Turnover:</span>{' '}
+                        {typeof f.inventoryTurnover === 'number' ? f.inventoryTurnover.toFixed(2) : 'N/A'}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Asset Turnover:</span>{' '}
+                        {typeof f.assetTurnover === 'number' ? f.assetTurnover.toFixed(2) : 'N/A'}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+              {/* EPS History Bar Chart */}
+              {Array.isArray(data?.financials?.epsHistory) && data.financials?.epsHistory?.length > 0 && (
+                <div className="bg-[#1E1E1E] p-4 rounded col-span-1 md:col-span-2 flex flex-col items-center">
+                  <h3 className="text-lg font-semibold mb-4">EPS by Quarter</h3>
+                  <div className="w-full" style={{ maxWidth: 600 }}>
+                    <Bar
+                      data={{
+                        labels: data.financials?.epsHistory?.slice(0, 4).map(e => {
+                          let label = formatQuarter((e as any).period ?? e.quarter);
+                          if (typeof e.epsGrowthPct === 'number') {
+                            label += ` (${e.epsGrowthPct >= 0 ? '+' : ''}${e.epsGrowthPct.toFixed(1)}%)`;
+                          }
+                          return label;
+                        }),
+                        datasets: [
+                          {
+                            label: 'EPS',
+                            data: data.financials?.epsHistory?.slice(0, 4).map(e => e.eps),
+                            backgroundColor: data.financials?.epsHistory?.slice(0, 4).map(e => {
+                              if (typeof e.epsGrowthPct === 'number') {
+                                if (e.epsGrowthPct > 0) return '#10B981';
+                                if (e.epsGrowthPct < 0) return '#EF4444';
+                              }
+                              return e.eps >= 0 ? '#10B981' : '#EF4444';
+                            }),
+                            borderRadius: 4,
+                            barThickness: 36,
+                          }
+                        ]
+                      }}
+                      options={{
+                        responsive: true,
+                        plugins: {
+                          legend: { display: false },
+                          datalabels: {
+                            color: '#fff',
+                            font: {
+                              weight: 'bold',
+                              size: 14,
+                            },
+                            formatter: (_value: number, context: any) => {
+                              const idx = context.dataIndex;
+                              const entry = data.financials?.epsHistory?.slice(0, 4)[idx];
+                              if (!entry) return '';
+                              let label = entry.eps.toFixed(2);
+                              if (typeof entry.epsGrowthPct === 'number') {
+                                label += ` (${entry.epsGrowthPct >= 0 ? '+' : ''}${entry.epsGrowthPct.toFixed(1)}%)`;
+                              }
+                              return label;
+                            },
+                          },
+                        },
+                        scales: {
+                          x: { ticks: { color: '#fff' } },
+                          y: { ticks: { color: '#fff' } },
+                        },
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </main>

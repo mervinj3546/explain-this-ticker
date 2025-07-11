@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
   const token = process.env.FINNHUB_API_KEY
 
   try {
+    const financials: { epsHistory?: { period: string; eps: number; epsGrowthPct?: number }[] } = {};
+
     // Fetch quote data
     const quoteUrl = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${token}`
     const quoteRes = await fetch(quoteUrl, { cache: "no-store" })
@@ -44,6 +46,52 @@ export async function GET(req: NextRequest) {
     const newsRes = await fetch(newsUrl, { cache: "no-store" })
     const newsData = await newsRes.json()
 
+    // Fetch EPS history data
+    const financialsUrl = `https://finnhub.io/api/v1/stock/financials-reported?symbol=${ticker}&token=${token}`
+    const financialsRes = await fetch(financialsUrl, { cache: "no-store" })
+    const financialsData = await financialsRes.json()
+
+    // Parse EPS data by quarter and calculate QoQ growth
+    let epsHistory: { period: string; eps: number; epsGrowthPct?: number }[] = [];
+    if (financialsData && Array.isArray(financialsData.data)) {
+      // Extract quarterly reports with EPS
+      const epsReports = financialsData.data
+        .filter((item: any) => item.form === '10-Q')
+        .map((item: any) => {
+          let eps: number | null = null;
+          if (Array.isArray(item.financialStatements?.incomeStatement)) {
+            const incomeStatement = item.financialStatements.incomeStatement;
+            const netIncomeEntry = incomeStatement.find((entry: any) => entry.concept === 'NetIncomeLoss');
+            const sharesEntry = incomeStatement.find((entry: any) =>
+              entry.concept === 'WeightedAverageNumberOfDilutedSharesOutstanding' ||
+              entry.concept === 'WeightedAverageNumberOfSharesOutstandingBasic'
+            );
+            if (netIncomeEntry && typeof netIncomeEntry.value === 'number' && sharesEntry && typeof sharesEntry.value === 'number' && sharesEntry.value !== 0) {
+              eps = netIncomeEntry.value / sharesEntry.value;
+            }
+          }
+          return {
+            period: item.reportDate,
+            eps: eps
+          };
+        })
+        .filter((item: any) => item.eps !== null)
+        .sort((a: any, b: any) => new Date(a.period).getTime() - new Date(b.period).getTime());
+
+      // Calculate growth percentages
+      for (let i = 0; i < epsReports.length; i++) {
+        const current = epsReports[i];
+        if (i === 0) {
+          epsHistory.push({ period: current.period, eps: current.eps });
+        } else {
+          const prev = epsReports[i - 1];
+          const growth = prev.eps !== 0 ? ((current.eps - prev.eps) / Math.abs(prev.eps)) * 100 : null;
+          epsHistory.push({ period: current.period, eps: current.eps, epsGrowthPct: growth !== null ? growth : undefined });
+        }
+      }
+    }
+    financials.epsHistory = epsHistory;
+
     const keywords = [ticker.toLowerCase()];
 
     return NextResponse.json({
@@ -65,7 +113,8 @@ export async function GET(req: NextRequest) {
               sentiment: scoreText(item.headline + ' ' + item.summary)
             }))
         : [],
-      sentiment: [] // Placeholder for future Reddit sentiment
+      sentiment: [], // Placeholder for future Reddit sentiment
+      financials
     })
   } catch (error) {
     console.error("API error:", error)
